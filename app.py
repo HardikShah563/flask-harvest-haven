@@ -356,6 +356,18 @@ def deleteCategory():
         return jsonify({"error": "Internal Server Error"}), 500
 
 # -------------------------------------------------------
+
+@app.route('/success')
+def success():
+    return jsonify({"title": "Your Order Has Been Placed", "subtitle": "Explore the store"}), 200
+
+# -------------------------------------------------------
+
+@app.route('/not-authorized')
+def message():
+    return jsonify({"title": "You do not have administrative rights", "subtitle": "You should have authorization to visit this page"}), 200
+
+# -------------------------------------------------------
 # function to sign out user, clear the session variables
 @app.route('/signout')
 def signout(): 
