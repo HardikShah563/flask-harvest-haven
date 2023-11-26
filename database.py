@@ -204,6 +204,20 @@ def adminCheck(email):
 
 # -------------------------------------------------------
 
+def getAllCategories():
+    get_script = '''
+        select * from category
+    '''
+    cur.execute(get_script)
+    conn.commit()
+    data = cur.fetchall()
+    # categories = []
+    # for category in data: 
+    #     categories.append(category[0])
+    return data
+
+# -------------------------------------------------------
+
 def getCategories(): 
     get_script = '''
         select c_name from category
