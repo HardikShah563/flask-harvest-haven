@@ -7,11 +7,14 @@ import psycopg2.extras
 from database import *
 import hashlib
 import base64
+from flask_cors import CORS
 
 app = Flask(__name__)
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
+CORS(app)
+session = {}
 
 @app.route('/')
 def home():
@@ -21,7 +24,6 @@ def home():
 def signin():
     try:
         data = request.get_json()
-
         if 'email' not in data or 'passcode' not in data:
             return jsonify({"error": "Username and password are required"}), 400
 
@@ -31,12 +33,9 @@ def signin():
         loginExists = loginAccount(email, passcode)
         if(loginExists):
             setSession(getUID(email), getName(email), email, adminCheck(email))
-            return jsonify({"message": "Login Successful"}), 200
+            return jsonify({"message": "Login Successful", "isAdmin": adminCheck(email)}), 200
         else:
             return jsonify({"error": "Internal Server Error"}), 500
-        
-        # if session['u_id']: 
-        #     return redirect("/store")
     except Exception as e:
         print(e)
         return jsonify({"error": "Internal Server Error"}), 500
@@ -82,13 +81,15 @@ def shop():
                 data = base64.b64encode(item[5])
                 item[5] = data.decode()
         
-        if request.method == "POST": 
+        if request.method == "POST":
             data = request.get_json()
-
             op = data["op"]
             p_id = data["p_id"]
             updateCart(p_id, op)
-        return jsonify({"categories": categories, "items": allItems}), 500
+            print(session["cart"])
+            return jsonify({"message": "success"}), 200
+        
+        return jsonify({"categories": categories, "items": allItems}), 200
     except Exception as e:
         print(e)
         return jsonify({"error": "Internal Server Error"}), 500
@@ -113,9 +114,8 @@ def updateCart(p_id, action):
 # -------------------------------------------------------
 
 @app.route('/cart', methods=["GET", "POST"])
-def cart(): 
+def cart():
     try:
-        # allItems = getAllItemsFromDB()
         if request.method == "GET":
             display_cart = recalculateDisplayCart(session['cart'])
             return jsonify({"cart": display_cart}), 200
@@ -134,34 +134,25 @@ def cart():
 
 @app.route('/checkout', methods=["GET", "POST"])
 def checkout():
-    display_cart = recalculateDisplayCart(session['cart'])
-    total = []
-    total.append(calcTotal(display_cart))
-    total.append(calcGST(total[0]))
-    total.append(calcGST(total[0]))
-    total.append(total[0] + (total[1] * 2))
-    createPurchaseJSON(session['cart'])
-
-    if request.method == "GET":
-        return jsonify({"display_cart": display_cart, "total": total})
-
-    if request.method == "POST":
-        data = request.get_json()
-        fullName = data["fullname"]
-        email = data["email"]
-        address = data["address"]
-        city = data["city"]
-        state = data["state"]
-        zip = data["zip"]
-
-        msg = checkoutPurchase(session['u_id'], fullName, email, address, city, state, zip, total[3], session['cart'])
-        if(msg) == None:
-            reduceStock(display_cart)
-            session['cart'] = initializeCart()
-            display_cart = {}
-            return jsonify({"message": "Order Placed Successfully"}), 200
-        else: 
-            return jsonify({"error": "Internal Server Error"}), 500
+    try:
+        if request.method == "POST":
+            data = request.get_json()
+            fullName = data["name"]
+            email = data["email"]
+            address = data["address"]
+            city = data["city"]
+            state = data["state"]
+            zip = data["zip"]
+            total = data["total"]
+            msg = checkoutPurchase(session['u_id'], fullName, email, address, city, state, zip, total, session['cart'])
+            if(msg) == None:
+                session['cart'] = initializeCart()
+                return jsonify({"message": "Order Placed Successfully"}), 200
+            else: 
+                return jsonify({"error": "Internal Server Error"}), 500
+    except Exception as e:
+        print(e)
+        return jsonify({"error": "Internal Server Error"}), 500
 
 # -------------------------------------------------------
 
@@ -176,11 +167,10 @@ def adminDashboard():
         return jsonify({"error": "Internal Server Error"}), 500
 
 # -------------------------------------------------------
-
-@app.route('/admin-stats')
+@app.route('/admin-stats', methods=["GET"])
 def adminStats():
     try:
-        allItems = getAllItemsFromDB()
+        items = getItemsForStats()
         stats = {
             "totalusers" : totalUsers(),
             "male" : totalMaleUsers(),
@@ -194,7 +184,8 @@ def adminStats():
             "slowMovingProduct" : slowMovingProduct(),
             "stockLevels" : stockLevels(),
         }
-        return jsonify({"stats": stats, "items": allItems}), 200
+        if request.method == "GET":
+            return jsonify({"items": items, "stats": stats}), 200
     except Exception as e:
         print(e)
         return jsonify({"error": "Internal Server Error"}), 500
@@ -206,7 +197,7 @@ def addItem():
     try:
         allCategories = getAllCategories()
         if request.method == 'GET':
-            return jsonify({"categories": allCategories, }), 500
+            return jsonify({"categories": allCategories, }), 200
         
         if request.method == 'POST':
             data = request.get_json()
@@ -214,7 +205,7 @@ def addItem():
             pQty = data['p_qty']
             pPrice = data['p_price']
             pStockQty = data['p_stock_qty']
-            pImg = data['p_img'].read()
+            pImg = data['p_img']
             cID = data['c_id']
 
             msg = putItems(pName, pQty, pPrice, pStockQty, pImg, cID)
@@ -261,7 +252,7 @@ def editItem():
 
             msg = editItemDetails(c_id, p_id, new_name, p_qty, p_price, p_stock_qty)
             if(msg == None):
-                return jsonify({"message": "New Item Created Successfully"}), 200
+                return jsonify({"message": "Item Edited Successfully"}), 200
 
             else:
                 return jsonify({"error": "Internal Server Error"}), 500
@@ -369,11 +360,16 @@ def message():
 
 # -------------------------------------------------------
 # function to sign out user, clear the session variables
-@app.route('/signout')
+@app.route('/signout', methods=["GET"])
 def signout(): 
-    destroySession()
-    initializeSession()
-    session['cart'] = initializeCart()
+    try:
+        destroySession()
+        initializeSession()
+        session['cart'] = initializeCart()
+        return jsonify({"message": "Logout Successful"}), 200
+    except Exception as e:
+        print(e)
+        return jsonify({"error": "Internal Server Error"}), 500
 
 # -------------------------------------------------------
 # function for initializing the session variables

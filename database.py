@@ -307,6 +307,15 @@ def deleteCategoryCompletely(c_id):
 
 # -------------------------------------------------------
 
+def getItemsForStats():
+    get_script = '''
+        select p_id, p_name, p_stock_qty from products
+    '''
+    cur.execute(get_script)
+    conn.commit()
+    data = cur.fetchall()
+    return data
+
 def getAllItemsFromDB():
     allProductsInTheStore = {}
 
